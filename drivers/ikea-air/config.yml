@@ -1,0 +1,6 @@
+name: Ikea AIR
+packageKey: ikea-air
+description: Driver for IKEA Air Quality and Purifier Products
+vendorSupportInformation: https://github.com/posborne
+permissions:
+  zigbee: {}

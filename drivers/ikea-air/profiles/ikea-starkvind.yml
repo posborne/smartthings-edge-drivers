@@ -1,0 +1,12 @@
+name: ikea-starkvind
+components:
+- id: main
+  capabilities:
+    - { id: temperatureMeasurement, version: 1 }
+    - { id: relativeHumidityMeasurement, version: 1 }
+    - { id: firmwareUpdate, version: 1 }
+    - { id: refresh, version: 1 }
+    - { id: fineDustSensor, version: 1 }
+    - { id: fineDustHealthConcern, version: 1 }
+    - { id: fanSpeed, version: 1 }
+    - { id: filterState, version: 1 }

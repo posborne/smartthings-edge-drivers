@@ -1,0 +1,11 @@
+zigbeeManufacturer:
+  - id: IKEA/STARKVIND Air Purifier
+    deviceLabel: IKEA STARKVIND Air Purifier
+    manufacturer: IKEA of Sweden
+    model: STARKVIND Air purifier
+    deviceProfileName: ikea-starkvind
+  - id: IKEA/STARKVIND Air Purifier Table
+    deviceLabel: IKEA STARKVIND Air Purifier Table
+    manufacturer: IKEA of Sweden
+    model: STARKVIND Air purifier table
+    deviceProfileName: ikea-starkvind
