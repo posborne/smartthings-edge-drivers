@@ -11,6 +11,9 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
+--
+-- TODO: Ambient Light
+-- TODO: Temp/Humidity Not Working
 
 local capabilities = require "st.capabilities"
 local ZigbeeDriver = require "st.zigbee"
@@ -18,8 +21,35 @@ local zigbee_defaults = require "st.zigbee.defaults"
 local data_types = require "st.zigbee.data_types"
 local cluster_base = require "st.zigbee.cluster_base"
 local device_management = require "st.zigbee.device_management"
+local utils = require "st.utils"
 
 local IKEA_MANUF_ID = 0x117C
+
+local FAN_SPEED_IKEA_TO_ST_MAPPING = {
+    [0] = 0,
+    [10] = 1,
+    [20] = 2,
+    [30] = 3,
+    [40] = 3,
+    [50] = 4,
+}
+
+local FAN_SPEED_ST_TO_IKEA_MAPPING = {
+    [0] = 0,
+    [1] = 10,
+    [2] = 20,
+    [3] = 30,
+    [4] = 50,
+}
+
+-- This is based on https://www.samsung.com/au/support/home-appliances/have-cleaner-air-with-the-samsung-air-purifier/
+local PM25_UPPER_BOUNDS_TO_HEALTH_CONCERN = {
+    { upper_bound = 15, value = "good" },
+    { upper_bound = 35, value = "moderate" },
+    { upper_bound = 75, value = "slightlyUnhealthy"},
+    { upper_bound = 200, value = "unhealthy" },
+    { upper_bound = 0xFFFF, value = "hazardous" },
+}
 
 local IkeaAirPurifierMfrSpecificCluster = {
     ID = 0xFC7D,
@@ -79,12 +109,7 @@ local function handle_capability_command_set_fan_speed(driver, device, command)
     -- Off = 0
     -- Auto = 1
     -- 10-50 is on between level 1 and 5 on the device
-    local requested_speed = math.max(0, math.min(command.args.speed, 0))
-    local fan_mode_payload = 0
-    if requested_speed > 0 then
-        local fan_speed_as_pct = requested_speed / 100.
-        fan_mode_payload = 10 + math.floor(40 * fan_speed_as_pct)
-    end
+    local ikea_fan_speed = FAN_SPEED_ST_TO_IKEA_MAPPING[command.args.speed]
 
     device:send(cluster_base.write_manufacturer_specific_attribute(
         device,
@@ -92,7 +117,7 @@ local function handle_capability_command_set_fan_speed(driver, device, command)
         IkeaAirPurifierMfrSpecificCluster.attributes.FanMode.ID,
         IKEA_MANUF_ID,
         IkeaAirPurifierMfrSpecificCluster.attributes.FanMode.base_type,
-        fan_mode_payload
+        ikea_fan_speed
     ))
 end
 
@@ -101,12 +126,42 @@ local function handle_zbattr_fan_mode(driver, device, value)
 end
 
 local function handle_zbattr_fan_speed(driver, device, value)
-    print(string.format("Got Fan Speed Change: %s", value))
+    -- Setting 1: 0x0A (10)
+    -- Setting 2: 0x14 (20)
+    -- Setting 3: 0x1E (30)
+    -- Setting 4: 0x28 (40)
+    -- Setting 5: 0x32 (50)
+    -- The SmartThings fanSpeed capability supports 0-4 speeds so we'll
+    -- just do 0 -> 0, 10 -> 1, 20 -> 2, 30,40 -> 3, 50 -> 4
+    print(utils.stringify_table(value, "value", true))
+    local attr_value = FAN_SPEED_IKEA_TO_ST_MAPPING[value.value]
+    device:emit_event(capabilities.fanSpeed.fanSpeed(attr_value))
 end
 
 local function handle_zbattr_pm25(driver, device, value)
     print(string.format("Got PM25 Change: %s", value))
 
+    -- this isn't directly documented but based on IKEA app, the values
+    -- we see in the cluster seem to be micro-grams per cubic meter
+    -- without additional conversion required.
+    local pm25_ug_m3 = value.value
+
+    -- sometimes the devices sends 0xFFFF for the attribute which appears
+    -- to just indicate that the sensor isn't ready, ignore.
+    if pm25_ug_m3 >= 0xFFFF then
+        return
+    end
+
+    local health_concern = "unhealthy"
+    for _, candidate in ipairs(PM25_UPPER_BOUNDS_TO_HEALTH_CONCERN) do
+        if pm25_ug_m3 < candidate.upper_bound then
+            health_concern = candidate.value
+            break
+        end
+    end
+
+    device:emit_event(capabilities.fineDustSensor.fineDustLevel(pm25_ug_m3))
+    device:emit_event(capabilities.fineDustHealthConcern.fineDustHealthConcern(health_concern))
 end
 
 local function handle_zbattr_filter_life_time(driver, device, value)
@@ -136,9 +191,6 @@ local ikea_air_driver_template = {
                 [IkeaAirPurifierMfrSpecificCluster.attributes.FilterLifeTime.ID] = handle_zbattr_filter_life_time,
             }
         }
-    },
-    additional_zcl_profiles = {
-        [0xA1E0] = true, -- IKEA
     },
     cluster_configurations = {
         [capabilities.fineDustSensor.ID] = {
